@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 #include <linux/videodev2.h>
 #include <libv4l2.h>
+#include <jpeglib.h>
 #include <signal.h>
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
@@ -21,9 +22,8 @@ struct buffer {
 } *buffers;
 
 struct vpkg {
-        char timestamp[32];
-        char image_header[15];
-        char image[57600];
+        char timestamp[14];
+        char image[60000];
 } outbuf;
 
 int                             sock, fd = -1;
@@ -42,6 +42,49 @@ static void xioctl(int fh, int request, void *arg)
                 fprintf(stderr, "error %d, %s\n", errno, strerror(errno));
                 exit(EXIT_FAILURE);
         }
+}
+
+static long jpeg_compress(char* src, unsigned char* dst, int width, int height, int quality)
+{
+  struct jpeg_compress_struct cinfo;
+  struct jpeg_error_mgr jerr;
+	
+  JSAMPROW row_pointer[1];
+
+  long bufsize = 0;
+
+  // create jpeg data
+  cinfo.err = jpeg_std_error( &jerr );
+  jpeg_create_compress(&cinfo);
+  jpeg_mem_dest(&cinfo, &dst, &bufsize);
+
+  // set image parameters
+  cinfo.image_width = width;	
+  cinfo.image_height = height;
+  cinfo.input_components = 3;
+  cinfo.in_color_space = JCS_RGB;
+
+  // set jpeg compression parameters to default
+  jpeg_set_defaults(&cinfo);
+  // and then adjust quality setting
+  jpeg_set_quality(&cinfo, quality, TRUE);
+
+  // start compress 
+  jpeg_start_compress(&cinfo, TRUE);
+
+  // feed data
+  while (cinfo.next_scanline < cinfo.image_height) {
+    row_pointer[0] = &src[cinfo.next_scanline * cinfo.image_width *  cinfo.input_components];
+    jpeg_write_scanlines(&cinfo, row_pointer, 1);
+  }
+
+  // finish compression
+  jpeg_finish_compress(&cinfo);
+
+  // destroy jpeg data
+  jpeg_destroy_compress(&cinfo);
+
+  return bufsize;
 }
 
 static void signal_term_handler(int signum)
@@ -67,20 +110,22 @@ int main(int argc, char **argv)
         struct v4l2_requestbuffers      req;
         fd_set                          fds;
         struct timeval                  tv;
-        int                             r;
+        int                             r, height, width;
         char                            *dev_name = "/dev/video0";
         char                            out_name[256];
         FILE                            *fout;
         struct sockaddr_in              addr;
         struct timeval                  now;
 
-        if (argc < 3)
+        if (argc < 5)
         {
-                printf("Too few args!\n USAGE: vcap [HOST] [PORT]\n");
+                printf("Too few args!\n USAGE: vcap [XRES] [YRES] [HOST] [PORT]\n");
                 exit(1);
         }
 
         signal(SIGINT, signal_term_handler);
+
+        height = atoi(argv[2]), width = atoi(argv[1]);
 
         sock = socket(AF_INET, SOCK_DGRAM, 0);
         if(sock < 0)
@@ -90,8 +135,8 @@ int main(int argc, char **argv)
         }
 
         addr.sin_family = AF_INET;
-        addr.sin_port = htons(atoi(argv[2]));
-        addr.sin_addr.s_addr = inet_addr(argv[1]);;
+        addr.sin_port = htons(atoi(argv[4]));
+        addr.sin_addr.s_addr = inet_addr(argv[3]);;
 
         fd = v4l2_open(dev_name, O_RDWR | O_NONBLOCK, 0);
         if (fd < 0) {
@@ -101,8 +146,8 @@ int main(int argc, char **argv)
 
         CLEAR(fmt);
         fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        fmt.fmt.pix.width       = 160;
-        fmt.fmt.pix.height      = 120;
+        fmt.fmt.pix.width       = width;
+        fmt.fmt.pix.height      = height;
         fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB24;
         fmt.fmt.pix.field       = V4L2_FIELD_INTERLACED;
         xioctl(fd, VIDIOC_S_FMT, &fmt);
@@ -110,9 +155,12 @@ int main(int argc, char **argv)
                 printf("Libv4l didn't accept RGB24 format. Can't proceed.\n");
                 exit(EXIT_FAILURE);
         }
-        if ((fmt.fmt.pix.width != 160) || (fmt.fmt.pix.height != 120))
+        if ((fmt.fmt.pix.width != atoi(argv[1])) || (fmt.fmt.pix.height != atoi(argv[2])))
+        {
                 printf("Warning: driver is sending image at %dx%d\n",
                                 fmt.fmt.pix.width, fmt.fmt.pix.height);
+                width = fmt.fmt.pix.width, height = fmt.fmt.pix.height;
+        }
 
         CLEAR(req);
         req.count = 10;
@@ -152,10 +200,6 @@ int main(int argc, char **argv)
 
         xioctl(fd, VIDIOC_STREAMON, &type);
         
-        // Write image header into buffer
-        sprintf(outbuf.image_header,"P6\n%d %d 255\n", 
-                        fmt.fmt.pix.width, fmt.fmt.pix.height);
-
         for (;;) {
                 do {
                         FD_ZERO(&fds);
@@ -179,15 +223,17 @@ int main(int argc, char **argv)
                 
                 // Copy timestamp into buffer
                 gettimeofday(&now, 0);
-                sprintf(outbuf.timestamp,"%ld", now.tv_sec);
+                sprintf(outbuf.timestamp, "%10d%02d", now.tv_sec, now.tv_usec/10000);
 
-                // Copy image into buffer
-                memcpy(outbuf.image, buffers[buf.index].start, buf.bytesused);
-                
+                printf("read=%d ", buf.bytesused);
+                // Compress image
+                long bufsize = jpeg_compress(buffers[buf.index].start, 
+                                outbuf.image, width, height, 75);
+
                 // Send buffer to server
-                i = sendto(sock, &outbuf, sizeof(struct vpkg), 0,
+                i = sendto(sock, &outbuf, bufsize + 14, 0,
                                 (struct sockaddr *)&addr, sizeof(addr));
-                printf("%ld: sended %d\n", now.tv_sec, i);
+                printf("TS=%s send=%d\n", outbuf.timestamp, i);
                 
                 xioctl(fd, VIDIOC_QBUF, &buf);
         }

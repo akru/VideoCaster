@@ -3,7 +3,7 @@ CC = gcc
 all: vcap vcaps
 
 vcap: vcap.c
-	$(CC) -lv4l2 $^ -o $@
+	$(CC) -lv4l2 -ljpeg $^ -o $@
 
 vcaps: vcaps.c
 	$(CC) $^ -o $@

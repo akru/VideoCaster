@@ -40,16 +40,13 @@ int main(int argc, char **argv)
             bytes_read = recvfrom(sock, buf, sizeof(buf), 
                         0, (struct sockaddr *)&from, &fromlen); 
 
-            sprintf(filename, "%s/%s.ppm", argv[2], buf);
+            sprintf(filename, "%s/%s.jpg", argv[2], buf);
             
-            fprintf(stderr,"Received %d bytes :: %s timestamp\n", bytes_read, buf);
+            fprintf(stderr,"Received %d bytes :: timestamp %s\n", bytes_read, buf);
 
             outf = fopen(filename, "w");
-            fwrite(buf + 32, 1, bytes_read - 32, outf);
+            fwrite(buf + 14, 1, bytes_read - 14, outf);
             fclose(outf);
-
-            sprintf(convertcmd, "convert %s %s.png", filename, filename);
-            system(convertcmd);
         }
         return 0;
 }
