@@ -200,6 +200,7 @@ int main(int argc, char **argv)
                 printf("send=%d\n", i);
                 
                 xioctl(fd, VIDIOC_QBUF, &buf);
+                usleep(100000);
         }
 
         return 0;
