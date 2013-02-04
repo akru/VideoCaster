@@ -13,6 +13,7 @@
 #include <libv4l2.h>
 #include <signal.h>
 #include "jcomp.h"
+#include "proto.h"
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
@@ -20,12 +21,6 @@ struct buffer {
         void   *start;
         size_t length;
 } *buffers;
-
-// UDP-package
-struct vpkg {
-        char timestamp[14];
-        char image[65400];
-} outbuf;
 
 int                             sock, fd = -1;
 unsigned int                    i, n_buffers;
@@ -73,6 +68,7 @@ int main(int argc, char **argv)
         char                            *dev_name = "/dev/video0";
         struct sockaddr_in              addr;
         struct timeval                  now;
+        vpkg                            outbuf;
 
         if (argc < 6)
         {
