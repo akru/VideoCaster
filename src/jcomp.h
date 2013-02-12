@@ -1,3 +1,6 @@
+#ifndef JCOMP_H
+#define JCOMP_H
+
 /* jcomp :: JPEG compressor
  *   src     - RGB24 image buffer
  *   dst     - destination buffer
@@ -16,3 +19,4 @@ int             height,
 int             quality
 );
 
+#endif // JCOMP_H
