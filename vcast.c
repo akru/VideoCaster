@@ -72,7 +72,7 @@ int main(int argc, char **argv)
 
         if (argc < 6)
         {
-                printf("Too few args!\n USAGE: vcap [XRES] [YRES] [QUALITY] [HOST] [PORT]\n");
+                printf("Too few args!\n USAGE: vcast [XRES] [YRES] [QUALITY] [HOST] [PORT]\n");
                 exit(1);
         }
 

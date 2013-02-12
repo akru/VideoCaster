@@ -2,21 +2,21 @@ CC = gcc
 CLIBS = -lv4l2 -ljpeg
 SLIBS = -lmemcached -lpthread
 
-all: vcap vcaps
+all: vcast vserv
 
 jcomp.o: jcomp.c jcomp.h
 	$(CC) -c jcomp.c
 
-vcap.o: vcap.c jcomp.h proto.h
-	$(CC) -c vcap.c
+vcast.o: vcast.c jcomp.h proto.h
+	$(CC) -c vcast.c
 
-vcaps.o: vcaps.c proto.h
-	$(CC) -c vcaps.c
+vserv.o: vserv.c proto.h
+	$(CC) -c vserv.c
 
-vcap: vcap.o jcomp.o
+vcast: vcast.o jcomp.o
 	$(CC) $(CLIBS) $^ -o $@
 
-vcaps: vcaps.o
+vserv: vserv.o
 	$(CC) $(SLIBS) $^ -o $@
 
 clean:

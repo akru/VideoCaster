@@ -17,7 +17,7 @@ int main(int argc, char **argv)
 
         if (argc < 3)
         {
-                printf("Too few args!\n USAGE: vcaps [PORT] [UUID]\n");
+                printf("Too few args!\n USAGE: vserv [PORT] [UUID]\n");
                 exit(1);
         }
 
