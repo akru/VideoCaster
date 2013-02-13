@@ -30,8 +30,8 @@ int main(int argc, char **argv)
 {
         uint32_t            ts, ts_c, ts_j;
         struct timeval      now, timeout;
-        int                 height, width, quality, bytes,
-                            delta, jitter;
+        int                 height, width, quality, fps,
+                            bytes, delta, jitter;
         char                outbuf[65000], rcvbuf[65000];
         vgrab_buffer        *buf;
         struct sockaddr_in  addr;
@@ -39,7 +39,7 @@ int main(int argc, char **argv)
 
         if (argc < 6)
         {
-                printf("Too few args!\n USAGE: vcast [DEVICE] [XRES] [YRES] [QUALITY] [HOST] [PORT]\n");
+                printf("Too few args!\n USAGE: vcast [DEVICE] [FPS] [XRES] [YRES] [QUALITY] [HOST] [PORT]\n");
                 exit(1);
         }
 
@@ -48,9 +48,10 @@ int main(int argc, char **argv)
         signal(SIGTERM, signal_term_handler);
 
         // Getting parametres
-        width =   atoi(argv[2]);
-        height =  atoi(argv[3]); 
-        quality = atoi(argv[4]);
+        fps =     atoi(argv[2]);
+        width =   atoi(argv[3]);
+        height =  atoi(argv[4]); 
+        quality = atoi(argv[5]);
 
         // Init video device
         vgrab_init(argv[1], width, height);
@@ -63,10 +64,10 @@ int main(int argc, char **argv)
                 exit(1);
         }
         addr.sin_family = AF_INET;
-        addr.sin_port = htons(atoi(argv[6]));
-        addr.sin_addr.s_addr = inet_addr(argv[5]);;
+        addr.sin_port = htons(atoi(argv[7]));
+        addr.sin_addr.s_addr = inet_addr(argv[6]);;
         // Enabling recv timeout
-        timeout.tv_sec = 0; timeout.tv_usec = 80000;
+        timeout.tv_sec = 0; timeout.tv_usec = 1000000 / fps - 20000;
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, 
                         (const char*)&timeout, sizeof(struct timeval));
 
@@ -98,26 +99,21 @@ int main(int argc, char **argv)
                 fprintf(stderr, "delta=%dms ", delta);
 
                 // Receive reply (for jitter compensation)
-                bytes = recvfrom(sock, &rcvbuf, sizeof(rcvbuf),
+                do
+                    bytes = recvfrom(sock, &rcvbuf, sizeof(rcvbuf),
                                 0, (struct sockaddr *)&addr, &fromlen);
-                if (bytes > 0 && !strcmp(outbuf, rcvbuf))
-                {
+                while (bytes > 0 && strcmp(outbuf, rcvbuf));
 
-                        // Counts jitter time
-                        gettimeofday(&now, 0);
-                        ts_j = now.tv_sec * 1000 + (int) now.tv_usec / 1000;
-                        jitter = ts_j - ts_c;
-                        fprintf(stderr, "jitter=%dms ", jitter);
-                }
-                else
-                {
-                        fprintf(stderr, "jitter=80ms(timeout) ");
-                        jitter = 80;
-                }
+                // Counts jitter time
+                gettimeofday(&now, 0);
+                ts_j = now.tv_sec * 1000 + (int) now.tv_usec / 1000;
+                jitter = ts_j - ts_c;
+                fprintf(stderr, "jitter=%dms ", jitter);
+                if (bytes < 0)
+                        fprintf(stderr, "(timeout) ");
 
-
-                // Make delay (FPS ~ 10)
-                int delay = 100000 - (delta + jitter) * 1000;
+                // Make delay (FPS ~ 2)
+                int delay = 1000000 / fps - (delta + jitter) * 1000;
                 fprintf(stderr, "delay=%dus\n", delay);
                 if (delay > 0) usleep(delay);
         }
