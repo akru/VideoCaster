@@ -1,0 +1,36 @@
+VideoCaster :: Simple and small video translation software
+
+EXAMPLE:
+On client:
+    $ vcast /dev/video0 640 480 80 1.2.3.4 55555
+
+Options:
+    /dev/video0 - V4L2 video device
+    640         - width
+    480         - height
+    80          - quality
+    1.2.3.4     - server IP
+    55555       - server port
+
+On server:
+    $ vserv 55555 my-unical-id
+
+Options:
+    55555           - local port
+    my-unical-id    - unical id for image, will be save into memcached
+
+DESCRIPTION:
+Client:
+        after start try to grab frame from v4l2 device, 
+        makes jpeg compression and sends over UDP to server.
+
+Server:
+        after start try to listen local port, 
+        received packets will be saved in memcache, 
+        image key will be unical-id, timestamp key will be unical-id-ts.
+
+
+DEPENDENCES:
+    - libV4L2
+    - libjpeg
+    - libmemcached (for server)

@@ -1,38 +1,41 @@
-#include <ortp/payloadtype.h>
-#include <ortp/ortp.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <signal.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 #include "jcomp.h"
 #include "vgrab.h"
 
-RtpSession *session;
+// UDP socket
+int sock = -1;
 
 static void signal_term_handler(int signum)
 {
-        fprintf(stderr, "Terminate...\n");
+        fprintf(stderr, "\nTerminate...");
 
         // Close video device
         vgrab_close();
 
-        // Destroy transport session
-        rtp_session_destroy(session);
-        ortp_exit();
-        ortp_global_stats_display();
+        // Close transport socket
+        close(sock);
 
-        fprintf(stderr,"\nok\n");
+        fprintf(stderr,"ok\n");
         exit(EXIT_SUCCESS);
 }
 
 
 int main(int argc, char **argv)
 {
-        struct timeval now;
-        int            height, width, quality; 
-        uint32_t       user_ts = 0;
-        char           outbuf[65000];
-        vgrab_buffer   *buf;
+        uint32_t            ts, ts_c, ts_j;
+        struct timeval      now, timeout;
+        int                 height, width, quality, bytes,
+                            delta, jitter;
+        char                outbuf[65000], rcvbuf[65000];
+        vgrab_buffer        *buf;
+        struct sockaddr_in  addr;
+        socklen_t fromlen = sizeof(struct sockaddr_in);
 
         if (argc < 6)
         {
@@ -53,35 +56,70 @@ int main(int argc, char **argv)
         vgrab_init(argv[1], width, height);
 
         // Init transport protocol
-        ortp_init();
-        ortp_scheduler_init();
-        ortp_set_log_level_mask(ORTP_MESSAGE|ORTP_WARNING|ORTP_ERROR);
-        session=rtp_session_new(RTP_SESSION_SENDONLY);	
+        sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if(sock < 0)
+        {
+                perror("socket");
+                exit(1);
+        }
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(atoi(argv[6]));
+        addr.sin_addr.s_addr = inet_addr(argv[5]);;
+        // Enabling recv timeout
+        timeout.tv_sec = 0; timeout.tv_usec = 80000;
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, 
+                        (const char*)&timeout, sizeof(struct timeval));
 
-        rtp_session_set_scheduling_mode(session,1);
-        rtp_session_set_blocking_mode(session,1);
-        rtp_session_set_connected_mode(session,TRUE);
-        rtp_session_set_payload_type(session,0);
-        rtp_session_set_remote_addr(session,argv[5],atoi(argv[6]));
-        
         // Main loop
         for (;;) {
-                // Get next frame
-                int bytes = vgrab_get_frame(&buf);
+                // Get current timestamp
+                gettimeofday(&now, 0);
+                ts = now.tv_sec * 1000 + (uint32_t) now.tv_usec / 1000;
+                fprintf(stderr, "ts=%u ", ts);
+                sprintf(outbuf, "%13u", ts);
 
-                // Print readed bytes
+                // Get next frame
+                bytes = vgrab_get_frame(&buf);
                 fprintf(stderr, "read=%d ", bytes);
 
                 // Compress image
-                size_t bufsize = jpeg_compress(buf->start, outbuf, width, height, quality);
-                fprintf(stderr, "compressed=%d ", bufsize);
+                bytes = jpeg_compress(buf->start, outbuf + 14, width, height, quality);
+                fprintf(stderr, "compress=%d ", bytes);
 
                 // Send image
-                rtp_session_send_with_ts(session, outbuf, bufsize, user_ts);
+                bytes = sendto(sock, &outbuf, bytes + 14, 0,
+                                (struct sockaddr *)&addr, sizeof(addr));
+                fprintf(stderr, "send=%d ", bytes);
 
-                fprintf(stderr, "ts=%u\n", user_ts);
-                usleep(100000);
-                ++user_ts;
+                // Counts creation time
+                gettimeofday(&now, 0);
+                ts_c = now.tv_sec * 1000 + (int) now.tv_usec / 1000;
+                delta = ts_c - ts;
+                fprintf(stderr, "delta=%dms ", delta);
+
+                // Receive reply (for jitter compensation)
+                bytes = recvfrom(sock, &rcvbuf, sizeof(rcvbuf),
+                                0, (struct sockaddr *)&addr, &fromlen);
+                if (bytes > 0 && !strcmp(outbuf, rcvbuf))
+                {
+
+                        // Counts jitter time
+                        gettimeofday(&now, 0);
+                        ts_j = now.tv_sec * 1000 + (int) now.tv_usec / 1000;
+                        jitter = ts_j - ts_c;
+                        fprintf(stderr, "jitter=%dms ", jitter);
+                }
+                else
+                {
+                        fprintf(stderr, "jitter=80ms(timeout) ");
+                        jitter = 80;
+                }
+
+
+                // Make delay (FPS ~ 10)
+                int delay = 100000 - (delta + jitter) * 1000;
+                fprintf(stderr, "delay=%dus\n", delay);
+                if (delay > 0) usleep(delay);
         }
 
         return 0;
